@@ -110,16 +110,14 @@ impl PyValue for PyStringIterator {
 #[pyimpl]
 impl PyStringIterator {
     #[pymethod(name = "__next__")]
-    fn next(&self, vm: &VirtualMachine) -> PyResult {
-        let pos = self.byte_position.load();
-
-        if pos < self.string.value.len() {
-            // We can be sure that chars() has a value, because of the pos check above.
-            let char_ = self.string.value[pos..].chars().next().unwrap();
-
-            self.byte_position.store(pos + char_.len_utf8());
-
-            char_.to_string().into_pyobject(vm)
+    fn next(&self, vm: &VirtualMachine) -> PyResult<String> {
+        let getc = |pos| self.string.value[pos..].chars().next().unwrap();
+        if let Some(pos) = crate::util::atomic_iter_advance(
+            &self.byte_position,
+            |p| p >= self.string.value.len(),
+            |p| getc(p).len_utf8(),
+        ) {
+            Ok(getc(pos).to_string())
         } else {
             Err(objiter::new_stop_iteration(vm))
         }
@@ -147,14 +145,10 @@ impl PyValue for PyStringReverseIterator {
 #[pyimpl]
 impl PyStringReverseIterator {
     #[pymethod(name = "__next__")]
-    fn next(&self, vm: &VirtualMachine) -> PyResult {
-        let pos = self.position.load();
-
-        if pos > 0 {
+    fn next(&self, vm: &VirtualMachine) -> PyResult<String> {
+        if let Some(pos) = crate::util::atomic_iter_advance(&self.position, |p| p == 0, |p| p - 1) {
             let value = self.string.value.do_slice(pos - 1..pos);
-
-            self.position.store(pos - 1);
-            value.into_pyobject(vm)
+            Ok(value)
         } else {
             Err(objiter::new_stop_iteration(vm))
         }

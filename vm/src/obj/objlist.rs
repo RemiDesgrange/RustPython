@@ -861,10 +861,10 @@ impl PyListIterator {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
         let list = self.list.elements.borrow();
-        let pos = self.position.load();
-        if let Some(obj) = list.get(pos) {
-            self.position.store(pos + 1);
-            Ok(obj.clone())
+        if let Some(pos) =
+            crate::util::atomic_iter_advance(&self.position, |p| p >= list.len(), |p| p + 1)
+        {
+            Ok(list[pos].clone())
         } else {
             Err(objiter::new_stop_iteration(vm))
         }
@@ -900,12 +900,9 @@ impl PyValue for PyListReverseIterator {
 impl PyListReverseIterator {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
-        let pos = self.position.load();
-        if pos > 0 {
-            let pos = pos - 1;
+        if let Some(pos) = crate::util::atomic_iter_advance(&self.position, |p| p == 0, |p| p - 1) {
             let list = self.list.elements.borrow();
             let ret = list[pos].clone();
-            self.position.store(pos);
             Ok(ret)
         } else {
             Err(objiter::new_stop_iteration(vm))
